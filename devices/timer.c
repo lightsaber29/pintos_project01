@@ -24,14 +24,17 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+/* 알람을 관리하는 리스트 */
+static struct list alarm_list;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
-   interrupt PIT_FREQ times per second, and registers the
-   corresponding interrupt. */
+	interrupt PIT_FREQ times per second, and registers the
+	corresponding interrupt. */
 void
 timer_init (void) {
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
@@ -43,6 +46,8 @@ timer_init (void) {
 	outb (0x40, count >> 8);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+	list_init(&alarm_list);  // 알람 리스트 초기화
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -120,12 +125,29 @@ void
 timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	// 알람 리스트에서 시간이 지난 알람을 확인하고 깨움
+	while (!list_empty(&alarm_list)) {
+	struct list_elem *e = list_front(&alarm_list);
+	struct alarm *a = list_entry(e, struct alarm, elem);
+
+	if (timer_ticks() >= a->wake_up_time) {
+		// 시간이 지나면 스레드를 깨우고 리스트에서 제거
+		lock_acquire(&a->lock);
+		cond_signal(&a->cond, &a->lock);
+		lock_release(&a->lock);
+		list_remove(e);
+	} else {
+		// 시간이 지나지 않은 알람이 나오면 더 이상 확인할 필요 없음
+		break;
+	}
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -147,12 +169,11 @@ too_many_loops (unsigned loops) {
 }
 
 /* Iterates through a simple loop LOOPS times, for implementing
-   brief delays.
-
-   Marked NO_INLINE because code alignment can significantly
-   affect timings, so that if this function was inlined
-   differently in different places the results would be difficult
-   to predict. */
+	brief delays.
+	Marked NO_INLINE because code alignment can significantly
+	affect timings, so that if this function was inlined
+	differently in different places the results would be difficult
+	to predict. */
 static void NO_INLINE
 busy_wait (int64_t loops) {
 	while (loops-- > 0)
@@ -184,3 +205,36 @@ real_time_sleep (int64_t num, int32_t denom) {
 		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 	}
 }
+
+/* 알람 초기화 */
+void alarm_init(struct alarm *a) {
+	a->wake_up_time = 0;
+	lock_init(&a->lock);
+	cond_init(&a->cond);
+	a->thread = NULL;
+	list_init(&alarm_list);  // 알람 리스트 초기화
+}
+
+/* 알람 설정 */
+void alarm_set(struct alarm *a, int64_t ticks) {
+	lock_acquire(&a->lock);
+	a->wake_up_time = timer_ticks() + ticks;
+	a->thread = thread_current();  // 현재 스레드를 저장
+
+	// 알람을 리스트에 추가
+	list_insert_ordered(&alarm_list, &a->elem, wake_time_less, NULL);
+
+	while (timer_ticks() < a->wake_up_time) {
+		cond_wait(&a->cond, &a->lock);
+	}
+
+	lock_release(&a->lock);
+}
+
+/* 알람 비교 */
+bool wake_time_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+	struct alarm *alarm_a = list_entry(a, struct alarm, elem);
+	struct alarm *alarm_b = list_entry(b, struct alarm, elem);
+	return alarm_a->wake_up_time < alarm_b->wake_up_time;
+}
+
