@@ -65,12 +65,24 @@ sema_down (struct semaphore *sema) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
+	// list_sort(&sema->waiters, priority_compare, NULL);
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		// list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current ()->elem, priority_compare ,NULL);
 		thread_block ();
 	}
 	sema->value--;
 	intr_set_level (old_level);
+}
+
+bool priority_compare (const struct list_elem *a, const struct list_elem *b, void *aux) {
+	struct thread *thread_a = list_entry (a, struct thread, elem);
+	struct thread *thread_b = list_entry (b, struct thread, elem);
+	if (thread_a->priority > thread_b->priority) {
+		return true;
+	} else {
+		return false;
+	}
 }
 
 /* Down or "P" operation on a semaphore, but only if the
@@ -86,6 +98,7 @@ sema_try_down (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
+	// list_sort(&sema->waiters, priority_compare, NULL);
 	if (sema->value > 0)
 	{
 		sema->value--;
@@ -109,6 +122,7 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
+	// list_sort(&sema->waiters, priority_compare, NULL);
 	if (!list_empty (&sema->waiters))
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
@@ -187,8 +201,23 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
+	enum intr_level old_level;
 
-	sema_down (&lock->semaphore);
+	while (!sema_try_down(&lock->semaphore)) {
+		old_level = intr_disable ();
+		int gap = thread_current()->priority - lock->holder->priority;
+		if (gap > 0) {
+			lock->holder->priority += gap;
+			thread_current()->credit = gap;
+			list_push_back(&lock->holder->dept_list, &thread_current()->creditor);
+			thread_current()->priority -= gap;
+			if (lock->holder->status == THREAD_BLOCKED) {
+				thread_unblock(lock->holder);
+			}
+		}
+		intr_set_level (old_level);
+		thread_get_priority();
+	}
 	lock->holder = thread_current ();
 }
 
@@ -221,9 +250,23 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+	enum intr_level old_level;
+
+	old_level = intr_disable ();
+
+	int dept_size = list_size(&thread_current()->dept_list);
+	for (; dept_size > 0; dept_size--) {
+		struct list_elem *creditor_ = list_pop_front(&thread_current()->dept_list);
+		struct thread *creditor_t = list_entry(creditor_, struct thread, creditor);
+		creditor_t->priority += creditor_t->credit;
+		thread_current()->priority -= creditor_t->credit;
+		creditor_t->credit = 0;
+	}
 
 	lock->holder = NULL;
+	intr_set_level (old_level);
 	sema_up (&lock->semaphore);
+	thread_get_priority();
 }
 
 /* Returns true if the current thread holds LOCK, false

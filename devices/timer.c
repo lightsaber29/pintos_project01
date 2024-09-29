@@ -16,7 +16,7 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
-
+struct semaphore sleep;
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
@@ -37,7 +37,7 @@ timer_init (void) {
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
 	   nearest. */
 	uint16_t count = (1193180 + TIMER_FREQ / 2) / TIMER_FREQ;
-
+	sema_init(&sleep,0);
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
@@ -93,8 +93,12 @@ timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
+	while (timer_elapsed (start) < ticks) {
+		sema_down(&sleep);
 		thread_yield ();
+	}
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -125,7 +129,15 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
+	// int waiter_size = list_size(&sleep.waiters);
+	// for (; waiter_size > 0; waiter_size--) {
+	// 	sema_up(&sleep);
+	// }
 	thread_tick ();
+	while (list_size(&sleep.waiters)) {
+		sema_up(&sleep);
+	}
+	thread_get_priority();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
