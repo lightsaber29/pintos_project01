@@ -7,6 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "list.h"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -24,10 +25,23 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+
+// 대기 중인 스레드를 저장할 리스트
+struct list sleep_list;
+
+struct sleep_thread {
+    struct thread *t; // 스레드 포인터
+    int64_t wakeup_time; // 깨어날 시간
+    struct semaphore sema; // 세마포어로 대기
+    struct list_elem elem; // 리스트 요소
+};
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
+bool sleep_tick_asc(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
@@ -43,6 +57,9 @@ timer_init (void) {
 	outb (0x40, count >> 8);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+    // sleep_list 초기화
+    list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -95,6 +112,21 @@ timer_sleep (int64_t ticks) {
 	ASSERT (intr_get_level () == INTR_ON);
 	while (timer_elapsed (start) < ticks)
 		thread_yield ();
+
+    // sleep 할 새 쓰레드가 왔으니까 list에 넣자
+    struct sleep_thread s_thread;
+    s_thread.t = thread_current();
+    s_thread.wakeup_time = start + ticks;
+    sema_init(&s_thread.sema, 0);
+
+    // 동시에 쓰레드에 접근하는 경우 처리
+    enum intr_level old_level = intr_disable ();
+	//HERE
+    list_insert_ordered(&sleep_list, &s_thread.elem, sleep_tick_asc, NULL);
+    intr_set_level (old_level);
+
+    // // 대기상태 진입
+    // sema_down(&s_thread.sema);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -120,12 +152,28 @@ void
 timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+    int64_t current_ticks = timer_ticks();
+    struct list_elem *e = list_begin(&sleep_list);
+
+    // while (e != list_end(&sleep_list)) {
+    //  struct sleep_thread *st = list_entry(e, struct sleep_thread, elem);
+        
+    // //  // 현재 스레드의 깨어날 시간이 되었는지 확인
+    //  if (st->wakeup_time <= current_ticks) {
+    // //      // 스레드를 깨움
+    //      e = list_remove(e);
+    //      thread_unblock(st->t);
+    //  } else {
+    //      break;
+    //  }
+    // }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -183,4 +231,12 @@ real_time_sleep (int64_t num, int32_t denom) {
 		ASSERT (denom % 1000 == 0);
 		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 	}
+}
+
+/* sleep 시간을 기준으로 오름차순으로 정렬 */
+bool
+sleep_tick_asc(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+    const struct sleep_thread *st_a = list_entry(a, struct sleep_thread, elem);
+    const struct sleep_thread *st_b = list_entry(b, struct sleep_thread, elem);
+    return st_a->wakeup_time < st_b->wakeup_time;
 }
