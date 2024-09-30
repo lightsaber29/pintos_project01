@@ -40,8 +40,8 @@ static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
-bool sleep_tick_asc(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
+bool sleep_tick_asc(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
@@ -125,7 +125,7 @@ timer_sleep (int64_t ticks) {
     list_insert_ordered(&sleep_list, &s_thread.elem, sleep_tick_asc, NULL);
     intr_set_level (old_level);
 
-    // // 대기상태 진입
+    // 대기상태 진입
     // sema_down(&s_thread.sema);
 }
 
