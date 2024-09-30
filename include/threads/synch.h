@@ -13,7 +13,7 @@ struct semaphore {
 void sema_init (struct semaphore *, unsigned value);
 void sema_down (struct semaphore *);
 
-bool priority_compare (const struct list_elem *a, const struct list_elem *b, void *aux);
+bool compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 bool sema_try_down (struct semaphore *);
 void sema_up (struct semaphore *);
@@ -40,7 +40,7 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
-bool priority_compare_semaphore_elem (const struct list_elem *a, const struct list_elem *b, void *aux);
+bool compare_priority_semaphore_elem (const struct list_elem *a, const struct list_elem *b, void *aux);
 /* Optimization barrier.
  *
  * The compiler will not reorder operations across an
