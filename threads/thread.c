@@ -320,14 +320,15 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
-	if ((!list_empty(&ready_list))&&(list_entry (list_front(&ready_list), struct thread, elem)->priority > new_priority))
-		thread_yield();
+	thread_current ()->priority_org = new_priority;
+	thread_get_priority();
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	if ((!list_empty(&ready_list))&&(list_entry (list_front(&ready_list), struct thread, elem)->priority > thread_current()->priority))
+	list_sort(&ready_list, priority_compare, NULL);
+	if ((!list_empty(&ready_list))&&(list_entry (list_front(&ready_list), struct thread, elem)->priority >= thread_current()->priority))
 		thread_yield();
 	return thread_current ()->priority;
 }
@@ -420,8 +421,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->priority_org = priority;
 	t->magic = THREAD_MAGIC;
-	list_init(&t->dept_list);
+	// list_init(&t->dept_list);
+	// t->locker = NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

@@ -16,7 +16,9 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
+
 struct semaphore sleep;
+
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
@@ -97,8 +99,6 @@ timer_sleep (int64_t ticks) {
 		sema_down(&sleep);
 		thread_yield ();
 	}
-	// while (timer_elapsed (start) < ticks)
-	// 	thread_yield ();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -129,15 +129,12 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	// int waiter_size = list_size(&sleep.waiters);
-	// for (; waiter_size > 0; waiter_size--) {
-	// 	sema_up(&sleep);
-	// }
-	thread_tick ();
 	while (list_size(&sleep.waiters)) {
-		sema_up(&sleep);
+		thread_unblock (list_entry (list_pop_front (&sleep.waiters),
+					struct thread, elem));
+		sleep.value++;
 	}
-	thread_get_priority();
+	thread_tick ();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
