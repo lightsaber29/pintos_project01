@@ -17,6 +17,8 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+struct semaphore sleep;
+
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
@@ -28,6 +30,7 @@ static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
+static bool compare_wake_time (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
@@ -37,7 +40,7 @@ timer_init (void) {
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
 	   nearest. */
 	uint16_t count = (1193180 + TIMER_FREQ / 2) / TIMER_FREQ;
-
+	sema_init(&sleep,0);
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
@@ -93,8 +96,9 @@ timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	thread_current()->wake_time = start + ticks;
+	sema_down(&sleep);
+	thread_yield ();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +130,24 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	struct list_elem *e;
+	list_sort(&sleep.waiters, compare_wake_time, NULL);
+	while (!list_empty(&sleep.waiters)) {
+		if (list_entry(list_front(&sleep.waiters), struct thread, elem)->wake_time <= ticks) {
+			struct thread *t = list_entry(list_pop_front (&sleep.waiters), struct thread, elem);
+			thread_unblock (t);
+			sleep.value++;
+		} else {
+			break;
+		}
+	}
+}
+
+static bool compare_wake_time (const struct list_elem *a, const struct list_elem *b, void *aux) {
+	struct thread *thread_a = list_entry (a, struct thread, elem);
+	struct thread *thread_b = list_entry (b, struct thread, elem);
+	return thread_a->wake_time < thread_b->wake_time;
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
