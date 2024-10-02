@@ -142,6 +142,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 			break;
 		}
 	}
+	thread_get_priority();
 }
 
 static bool compare_wake_time (const struct list_elem *a, const struct list_elem *b, void *aux) {
