@@ -126,7 +126,7 @@ timer_sleep (int64_t ticks) {
     intr_set_level (old_level);
 
     // 대기상태 진입
-    // sema_down(&s_thread.sema);
+    sema_down(&s_thread.sema);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -162,18 +162,18 @@ timer_interrupt (struct intr_frame *args UNUSED) {
     int64_t current_ticks = timer_ticks();
     struct list_elem *e = list_begin(&sleep_list);
 
-    // while (e != list_end(&sleep_list)) {
-    //  struct sleep_thread *st = list_entry(e, struct sleep_thread, elem);
+    while (e != list_end(&sleep_list)) {
+     struct sleep_thread *st = list_entry(e, struct sleep_thread, elem);
         
-    // //  // 현재 스레드의 깨어날 시간이 되었는지 확인
-    //  if (st->wakeup_time <= current_ticks) {
-    // //      // 스레드를 깨움
-    //      e = list_remove(e);
-    //      thread_unblock(st->t);
-    //  } else {
-    //      break;
-    //  }
-    // }
+		// 현재 스레드의 깨어날 시간이 되었는지 확인
+		if (st->wakeup_time <= current_ticks) {
+		    // 스레드를 깨움
+			e = list_remove(e);
+			thread_unblock(st->t);
+		} else {
+			break;
+		}
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
