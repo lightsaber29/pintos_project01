@@ -323,7 +323,11 @@ int
 thread_get_priority (void) {
 	list_sort(&ready_list, compare_priority, NULL);
 	if ((!list_empty(&ready_list))&&(list_entry (list_front(&ready_list), struct thread, elem)->priority >= thread_current()->priority))
-		thread_yield();
+		if (!intr_context()) {
+			thread_yield();
+		} else {
+			intr_yield_on_return();
+		}
 	return thread_current ()->priority;
 }
 
