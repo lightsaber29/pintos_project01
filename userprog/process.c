@@ -22,10 +22,13 @@
 #include "vm/vm.h"
 #endif
 
+#define MAX_ARGS 128
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+void load_arguments(char **args_list, int argc, struct intr_frame *if_);
 
 /* General process initializer for initd and other process. */
 static void
@@ -49,6 +52,9 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+
+	char *save_ptr;
+	strtok_r(file_name, " ", &save_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -122,11 +128,12 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = &parent->tf;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	memcpy (&if_.R.rax, 0x0, 8);
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -148,6 +155,7 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
+	// file_duplicate();
 
 	process_init ();
 
@@ -164,6 +172,9 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	int argc = 0;
+	char *args_list[MAX_ARGS];
+	char *arg, *save_ptr;
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -176,8 +187,15 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+	for (arg = strtok_r(f_name, " ", &save_ptr); arg != NULL; arg = strtok_r(NULL, " ", &save_ptr)) {
+        args_list[argc++] = arg;
+    }
+
 	/* And then load the binary */
 	success = load (file_name, &_if);
+
+	/* load arguments in user stack*/
+	load_arguments(args_list, argc, &_if);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -189,6 +207,39 @@ process_exec (void *f_name) {
 	NOT_REACHED ();
 }
 
+void load_arguments(char **args_list, int argc, struct intr_frame *if_) {
+	char *args_addr[MAX_ARGS];
+	int i, zeroset;
+	for (i = argc - 1; i >= 0; i--) {
+        if_->rsp -= strlen(args_list[i]) + 1; // Include null terminator
+        memcpy((void *)if_->rsp, args_list[i], strlen(args_list[i]) + 1);
+        args_addr[i] = if_->rsp; // Store the address of each argument
+    }
+
+    /* Align the stack to 8 bytes */
+	zeroset = if_->rsp & 0x7;
+    if_->rsp &= ~0x7;
+	if (zeroset)
+		memset(if_->rsp, 0, zeroset);
+
+    /* Push argument addresses */
+    if_->rsp -= sizeof(char *); // Space for argv[argc] = NULL
+    // *(char **)if_->rsp = NULL; // NULL sentinel for argv[argc]
+	memset(if_->rsp, 0, 8);
+
+    for (i = argc - 1; i >= 0; i--) {
+        if_->rsp -= sizeof(char *);
+        memcpy((void *)if_->rsp, &args_addr[i], sizeof(char *));
+    }
+    
+	/* Set up RDI and RSI for argc and argv */
+    if_->R.rdi = argc;
+    if_->R.rsi = if_->rsp;
+
+	/* Align the stack for the return address */
+	if_->rsp -= sizeof(void *);
+	memset(if_->rsp, 0, 8);
+}
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -204,6 +255,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	for(int i = 0; i<2000000000; i++);
 	return -1;
 }
 
@@ -334,7 +386,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
-
+	
 	/* Open executable file. */
 	file = filesys_open (file_name);
 	if (file == NULL) {
@@ -417,7 +469,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 
-	success = true;
+    success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */

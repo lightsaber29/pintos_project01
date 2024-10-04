@@ -8,6 +8,8 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 
+#include "process.h"
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -41,6 +43,75 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+	// printf ("system call!\n");
+	// thread_exit ();
+	int syscall_num = f->R.rax;
+	switch (syscall_num) {
+		case SYS_HALT:
+			halt();
+			break;
+		case SYS_EXIT:
+			exit(f->R.rdi);
+			break;
+		case SYS_FORK:
+			fork(f->R.rdi);
+			break;
+	}
+}
+
+void halt (void) {
+	power_off();
+}
+
+void exit (int status) {
+	printf("%s: exit(%d)\n", thread_current()->name, status);
+	thread_exit();
+}
+
+pid_t fork (const char *thread_name) {
+	return (pid_t) process_fork(thread_name, &thread_current()->tf);
+}
+
+int exec (const char *cmd_line) {
+
+}
+
+int wait (pid_t pid) {
+
+}
+
+bool create (const char *file, unsigned initial_size) {
+	
+}
+
+bool remove (const char *file) {
+
+}
+
+int open (const char *file) {
+	
+}
+
+int filesize (int fd) {
+
+}
+
+int read (int fd, void *buffer, unsigned size) {
+
+}
+
+int write (int fd, const void *buffer, unsigned size) {
+
+}
+
+void seek (int fd, unsigned position) {
+
+}
+
+unsigned tell (int fd) {
+
+}
+
+void close (int fd) {
+
 }
