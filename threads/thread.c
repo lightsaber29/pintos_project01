@@ -321,13 +321,17 @@ thread_set_priority (int new_priority) {
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
+	enum intr_level old_level;
+	old_level = intr_disable ();
 	list_sort(&ready_list, compare_priority, NULL);
-	if ((!list_empty(&ready_list))&&(list_entry (list_front(&ready_list), struct thread, elem)->priority >= thread_current()->priority))
+	if ((!list_empty(&ready_list))&&(list_entry (list_front(&ready_list), struct thread, elem)->priority >= thread_current()->priority)) {
 		if (!intr_context()) {
 			thread_yield();
 		} else {
 			intr_yield_on_return();
 		}
+	}
+	intr_set_level (old_level);
 	return thread_current ()->priority;
 }
 
