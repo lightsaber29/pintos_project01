@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -96,9 +97,23 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
+	struct file **fdt;
+	int fdt_page_num;
+
+	struct intr_frame fork_frame;
+	struct list children;
+	struct list_elem child;
+
+	struct semaphore child_load;
+	struct semaphore child_wait;
+	struct semaphore child_exit;
+
+	int exit_status;
+
+	struct file *from_file;
 #ifdef USERPROG
-	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	/* Owned by userprog/process.c. */
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -135,6 +150,7 @@ void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
 int thread_get_priority (void);
+int thread_get_priority_ (void);
 void thread_set_priority (int);
 
 int thread_get_nice (void);

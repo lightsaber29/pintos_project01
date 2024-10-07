@@ -9,7 +9,7 @@ void syscall_init (void);
 
 void halt (void);
 void exit (int status);
-pid_t fork (const char *thread_name);
+// pid_t fork (const char *thread_name);
 int exec (const char *cmd_line);
 int wait (pid_t pid);
 bool create (const char *file, unsigned initial_size);

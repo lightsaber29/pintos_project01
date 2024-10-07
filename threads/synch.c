@@ -121,8 +121,8 @@ sema_up (struct semaphore *sema) {
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
 	sema->value++;
-	intr_set_level (old_level);
 	thread_get_priority();
+	intr_set_level (old_level);
 }
 
 static void sema_test_helper (void *sema_);
@@ -197,6 +197,8 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	enum intr_level old_level;
+	old_level = intr_disable ();
 	while (!sema_try_down(&lock->semaphore)) {
 		int gap = thread_current()->priority - lock->holder->priority;
 		if (gap > 0) {
@@ -209,6 +211,7 @@ lock_acquire (struct lock *lock) {
 		thread_get_priority();
 	}
 	lock->holder = thread_current ();
+	intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -240,11 +243,13 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-
+	enum intr_level old_level;
+	old_level = intr_disable ();
 	thread_current()->priority = thread_current()->priority_org;
 	lock->holder = NULL;
 	
 	sema_up (&lock->semaphore);
+	intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
